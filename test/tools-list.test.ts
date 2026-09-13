@@ -72,7 +72,7 @@ test("issue keys are validated on every key parameter", () => {
     assert.equal(t.inputSchema.safeParse({ key: "not a key", body: "b", transitionName: "t", fields: { a: 1 } }).success, false, name);
   }
   const move = tools.find((x) => x.name === "jira_write_move_to_epic")!;
-  assert.equal(move.inputSchema.safeParse({ epicKey: "XS-1", issueKeys: ["bad"] }).success, false);
+  assert.equal(move.inputSchema.safeParse({ epicKey: "PAY-1", issueKeys: ["bad"] }).success, false);
 });
 
 test("jira_server_info never returns the audit path or credentials", async () => {

@@ -165,10 +165,10 @@ export function createReadTools(cap: number): ToolDef[] {
       name: "jira_search_issues",
       tier: "read",
       description:
-        "Find issues and return a compact list (key, summary, status, type, assignee, priority, fixVersions, updated). Use for any question that maps to a filter: 'what is open in 2027.0', 'my bugs updated this week', 'unassigned stories in XS'. Pass either raw jql or a structured filter, not both. Results are paged; pass startAt from nextStartAt to continue. For one known ticket use jira_get_issue.",
+        "Find issues and return a compact list (key, summary, status, type, assignee, priority, fixVersions, updated). Use for any question that maps to a filter: 'what is open in 4.2', 'my bugs updated this week', 'unassigned stories in PAY'. Pass either raw jql or a structured filter, not both. Results are paged; pass startAt from nextStartAt to continue. For one known ticket use jira_get_issue.",
       inputSchema: z
         .object({
-          jql: z.string().min(1).optional().describe("Raw Jira Query Language, e.g. project = XS AND fixVersion = '2027.0.0' AND status != Done"),
+          jql: z.string().min(1).optional().describe("Raw Jira Query Language, e.g. project = PAY AND fixVersion = '4.2.0' AND status != Done"),
           filter: SearchFilter.optional().describe("Structured criteria compiled to JQL; safer than raw JQL for common questions"),
           orderBy: z.string().default("updated DESC").describe("JQL ORDER BY clause used with filter; ignored when jql is given"),
           startAt: StartAt,
@@ -267,7 +267,7 @@ export function createReadTools(cap: number): ToolDef[] {
     tool({
       name: "jira_list_versions",
       tier: "read",
-      description: "List fix versions (releases) for a project. Defaults to unreleased, unarchived versions so a release name like '2027.0.0' resolves quickly; widen with released: 'all' for history.",
+      description: "List fix versions (releases) for a project. Defaults to unreleased, unarchived versions so a release name like '4.2.0' resolves quickly; widen with released: 'all' for history.",
       inputSchema: z
         .object({
           projectKey: ProjectKey,
@@ -292,7 +292,7 @@ export function createReadTools(cap: number): ToolDef[] {
       name: "jira_get_release_health",
       tier: "read",
       description:
-        "One-call release status for a fix version, entirely from exact count queries: total, counts by status category (To Do, In Progress, Done), percent done, and open issues by type (a configurable set plus sub-tasks and a remainder). Always complete regardless of release size; if any count fails it is null and named in partial. Use for 'how is 2027.0 tracking' or a release readout.",
+        "One-call release status for a fix version, entirely from exact count queries: total, counts by status category (To Do, In Progress, Done), percent done, and open issues by type (a configurable set plus sub-tasks and a remainder). Always complete regardless of release size; if any count fails it is null and named in partial. Use for 'how is 4.2 tracking' or a release readout.",
       inputSchema: z
         .object({
           projectKey: ProjectKey,

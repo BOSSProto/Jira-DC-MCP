@@ -16,8 +16,8 @@ async function mockJira(): Promise<{ url: string; close: () => void; calls: stri
     if (req.headers.authorization !== "Bearer test-token") return send(401, { error: "no" });
     const u = new URL(req.url ?? "/", "http://x");
     if (u.pathname === "/rest/api/2/myself") return send(200, { name: "rodi", displayName: "Rodi B" });
-    if (u.pathname === "/rest/api/2/search") return send(200, { total: 1, startAt: 0, maxResults: 50, issues: [{ id: "1", key: "XS-1", fields: { summary: "Hello", status: { name: "Open", statusCategory: { name: "To Do" } }, issuetype: { name: "Story" }, assignee: null, priority: { name: "High" }, fixVersions: [{ name: "2027.0.0" }], updated: "2026-09-10" } }] });
-    if (u.pathname === "/rest/api/2/issue/XS-1/comment" && req.method === "POST") return send(201, { id: "42" });
+    if (u.pathname === "/rest/api/2/search") return send(200, { total: 1, startAt: 0, maxResults: 50, issues: [{ id: "1", key: "PAY-1", fields: { summary: "Hello", status: { name: "Open", statusCategory: { name: "To Do" } }, issuetype: { name: "Story" }, assignee: null, priority: { name: "High" }, fixVersions: [{ name: "4.2.0" }], updated: "2026-09-10" } }] });
+    if (u.pathname === "/rest/api/2/issue/PAY-1/comment" && req.method === "POST") return send(201, { id: "42" });
     return send(404, {});
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
@@ -40,9 +40,9 @@ test("e2e: read-only server lists 12 tools and answers a search through the mock
     const tools = await client.listTools();
     assert.equal(tools.tools.length, 12);
     assert.ok(!tools.tools.some((t) => t.name.startsWith("jira_write_")));
-    const r = await client.callTool({ name: "jira_search_issues", arguments: { jql: "project = XS" } });
+    const r = await client.callTool({ name: "jira_search_issues", arguments: { jql: "project = PAY" } });
     const text = (r.content as Array<{ text: string }>)[0].text;
-    assert.ok(text.includes('"key": "XS-1"'));
+    assert.ok(text.includes('"key": "PAY-1"'));
     assert.ok(jira.calls.some((c) => c.startsWith("GET /rest/api/2/search?")), "search must use GET");
     const info = await client.callTool({ name: "jira_server_info", arguments: {} });
     const infoText = (info.content as Array<{ text: string }>)[0].text;
@@ -60,11 +60,11 @@ test("e2e: full mode exposes writes, refuses without confirm, writes with confir
   try {
     const tools = await client.listTools();
     assert.equal(tools.tools.length, 17);
-    const refused = await client.callTool({ name: "jira_write_comment", arguments: { key: "XS-1", body: "hi" } });
+    const refused = await client.callTool({ name: "jira_write_comment", arguments: { key: "PAY-1", body: "hi" } });
     assert.equal(refused.isError, true);
     assert.ok((refused.content as Array<{ text: string }>)[0].text.includes("CONFIRMATION_REQUIRED"));
     assert.ok(!jira.calls.some((c) => c.startsWith("POST")), "no write reached Jira without confirm");
-    const ok = await client.callTool({ name: "jira_write_comment", arguments: { key: "XS-1", body: "hi", confirm: true } });
+    const ok = await client.callTool({ name: "jira_write_comment", arguments: { key: "PAY-1", body: "hi", confirm: true } });
     assert.notEqual(ok.isError, true);
     assert.ok((ok.content as Array<{ text: string }>)[0].text.includes('"commentId": "42"'));
   } finally {

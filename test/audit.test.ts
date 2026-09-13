@@ -10,7 +10,7 @@ test("audit record stores a hash and key names, never input values", async () =>
   const dir = await mkdtemp(path.join(os.tmpdir(), "audit-"));
   const file = path.join(dir, "a.jsonl");
   const audit = new AuditLog(file);
-  const inputs = { jql: "project = XS AND text ~ 'customer secret'", maxResults: 5 };
+  const inputs = { jql: "project = PAY AND text ~ 'customer secret'", maxResults: 5 };
   await audit.record({ ts: "t", traceId: "tr", principal: "rodi", tool: "jira_search_issues", tier: "read", inputsHash: AuditLog.hashInputs(inputs), inputKeys: Object.keys(inputs), outcome: "ok", durationMs: 3 });
   const line = (await readFile(file, "utf8")).trim();
   assert.ok(!line.includes("customer secret"));

@@ -1,10 +1,10 @@
 import { z } from "zod";
 
-export const IssueKey = z.string().regex(/^[A-Z][A-Z0-9_]*-\d+$/i, "Expected an issue key like XS-12345").describe("Issue key, e.g. XS-12345");
+export const IssueKey = z.string().regex(/^[A-Z][A-Z0-9_]*-\d+$/i, "Expected an issue key like PAY-1234").describe("Issue key, e.g. PAY-1234");
 
-export const ProjectKey = z.string().regex(/^[A-Z][A-Z0-9_]*$/i, "Expected a project key like XS").describe("Project key, e.g. XS. Use jira_list_projects if unknown.");
+export const ProjectKey = z.string().regex(/^[A-Z][A-Z0-9_]*$/i, "Expected a project key like PAY").describe("Project key, e.g. PAY. Use jira_list_projects if unknown.");
 
-export const FixVersionName = z.string().min(1).describe("Fix version name exactly as Jira shows it, e.g. 2027.0.0. Use jira_list_versions to resolve it.");
+export const FixVersionName = z.string().min(1).describe("Fix version name exactly as Jira shows it, e.g. 4.2.0. Use jira_list_versions to resolve it.");
 
 export const ExtraFields = z
   .array(z.string())

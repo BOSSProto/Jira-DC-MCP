@@ -23,7 +23,7 @@ export class ToolError extends Error {
 }
 
 export const SERVICE = "jira-dc-mcp";
-export const VERSION = "0.2.2";
+export const VERSION = "0.2.3";
 
 export function newTraceId(): string {
   return randomUUID();

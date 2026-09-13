@@ -14,7 +14,7 @@ Seventeen tools over Jira DC's REST and Agile APIs, in three tiers:
 | diagnostics | `jira_server_info` | always |
 | write | `jira_write_comment`, `jira_write_transition`, `jira_write_issue`, `jira_write_fields`, `jira_write_move_to_epic` | `JIRA_MCP_MODE=full` |
 
-The one-call readouts are the reason this exists. `jira_get_release_health` answers "how is 2027.0 tracking" with exact counts. `jira_get_sprint_health` takes a board name and finds the active sprint itself. `jira_get_issue_context` returns the ticket, its comments, its links and its epic together, so "draft a reply on XS-56258" is one call, not three. `jira_search_issues` takes a structured filter (project, version, status category, assignee, updated-since, text) as well as raw JQL, because raw JQL is where other people's calls fail.
+The one-call readouts are the reason this exists. `jira_get_release_health` answers "how is 4.2 tracking" with exact counts. `jira_get_sprint_health` takes a board name and finds the active sprint itself. `jira_get_issue_context` returns the ticket, its comments, its links and its epic together, so "draft a reply on PAY-4821" is one call, not three. `jira_search_issues` takes a structured filter (project, version, status category, assignee, updated-since, text) as well as raw JQL, because raw JQL is where other people's calls fail.
 
 ## Design notes
 

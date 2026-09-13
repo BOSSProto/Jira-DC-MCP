@@ -107,7 +107,7 @@ export function createWriteTools(): ToolDef[] {
       tier: "write",
       description:
         "Parent one or more issues under an epic using the Agile API, the reliable path on Jira DC (writing the Epic Link field directly is not). Changes Jira (additive to the epic; replaces an existing parent on the issue). Call with confirm: true.",
-      inputSchema: z.object({ epicKey: IssueKey.describe("Epic issue key, e.g. XS-41554"), issueKeys: z.array(IssueKey).min(1).max(50).describe("Issues to move under the epic, up to 50"), confirm }).strict(),
+      inputSchema: z.object({ epicKey: IssueKey.describe("Epic issue key, e.g. PAY-900"), issueKeys: z.array(IssueKey).min(1).max(50).describe("Issues to move under the epic, up to 50"), confirm }).strict(),
       annotations: WRITE_ADDITIVE,
       handler: async (a, ctx) => {
         await ctx.jira.moveToEpic(ctx.traceId, a.epicKey, a.issueKeys);

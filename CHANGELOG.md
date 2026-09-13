@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. Format follows Keep a Changelog; versions follow SemVer. Pre-1.0, minor versions may break.
 
+## [0.2.3] - 2026-09-13
+
+### Changed
+- Fixtures, examples and tool-description samples now use generic identifiers (project PAY, release 4.2.0, board "Payments Orion"). No behaviour change.
+
 ## [0.2.2] - 2026-09-10
 
 ### Fixed
