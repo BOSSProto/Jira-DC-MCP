@@ -28,7 +28,7 @@ Any second transport (HTTP) must call `createTools()` from the same factory and 
 
 ## Status
 
-v0.2.1. Read tools exercised against a live Jira DC via `npm run smoke`. Write tools exercised end-to-end against the mock only; test them in a sandbox project before enabling `full` mode against production.
+v0.2.2. Read tools exercised against a live Jira DC via `npm run smoke`. Write tools exercised end-to-end against the mock only; test them in a sandbox project before enabling `full` mode against production.
 
 ## Deliberate rule-breaks
 

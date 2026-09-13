@@ -50,16 +50,68 @@ test("release health is entirely count-based, complete on large releases, and na
   assert.equal(bad.complete, false);
 });
 
-test("sprint health resolves board by unique name and picks the active sprint", async () => {
-  const jira = {
-    listBoards: async () => ({ values: [{ id: 7, name: "XSight Marvel", type: "scrum" }, { id: 9, name: "XSight Chat", type: "scrum" }] }),
-    listSprints: async (_t: string, boardId: number, state?: string) => ({ values: state === "active" ? [{ id: 55, name: "Marvel 42", state: "active" }] : [] }),
+// A mock Agile boards endpoint with 55 boards across 3 pages, server-side partial name filter, isLast/total envelope.
+function boardsMock(opts: { serverNameFilter?: boolean } = { serverNameFilter: true }) {
+  const boards = Array.from({ length: 53 }, (_, i) => ({ id: i + 1, name: `Board ${String(i + 1).padStart(2, "0")}`, type: "scrum" }));
+  boards.push({ id: 1106, name: "Copy of Xsight - Team Marvel", type: "scrum" }, { id: 1200, name: "XSight Chat", type: "kanban" });
+  const calls: Array<Record<string, unknown>> = [];
+  return {
+    calls,
+    listBoards: async (_t: string, o: { name?: string; startAt?: number; maxResults?: number }) => {
+      calls.push(o);
+      const filtered = opts.serverNameFilter && o.name ? boards.filter((b) => b.name.toLowerCase().includes(o.name!.toLowerCase())) : boards;
+      const startAt = o.startAt ?? 0, max = Math.min(o.maxResults ?? 50, 20);
+      const values = filtered.slice(startAt, startAt + max);
+      return { values, startAt, maxResults: max, total: filtered.length, isLast: startAt + values.length >= filtered.length };
+    },
+    listSprints: async (_t: string, _b: number, o: { state?: string; startAt?: number }) => {
+      const closed = Array.from({ length: 45 }, (_, i) => ({ id: 100 + i, name: `Marvel ${i + 1}`, state: "closed" }));
+      const byState: Record<string, any[]> = { active: [{ id: 555, name: "Marvel 46", state: "active" }], future: [{ id: 556, name: "Marvel 47", state: "future" }], closed };
+      const list = o.state ? byState[o.state] : [...closed, ...byState.active, ...byState.future];
+      const startAt = o.startAt ?? 0, values = list.slice(startAt, startAt + 20);
+      return { values, startAt, maxResults: 20, isLast: startAt + values.length >= list.length };
+    },
     sprintIssues: async () => ({ total: 1, startAt: 0, maxResults: 100, issues: [{ id: "1", key: "XS-1", fields: { status: { name: "Open", statusCategory: { name: "To Do" } }, assignee: null, labels: ["blocked"] } }] }),
   } as any;
-  const tool = createReadTools(100).find((t) => t.name === "jira_get_sprint_health")!;
-  const out = (await tool.handler({ boardName: "marvel", maxResults: 100 } as never, { traceId: "t", jira, config: testConfig() })) as any;
-  assert.deepEqual(out.sprint, { id: 55, name: "Marvel 42", board: { id: 7, name: "XSight Marvel" } });
-  assert.deepEqual(out.unassigned, ["XS-1"]);
-  assert.deepEqual(out.labelledBlocked, ["XS-1"]);
-  await assert.rejects(() => tool.handler({ boardName: "xsight", maxResults: 100 } as never, { traceId: "t", jira, config: testConfig() }), /matches 2 boards/);
+}
+const health = () => createReadTools(100).find((t) => t.name === "jira_get_sprint_health")!;
+const ctxFor = (jira: any) => ({ traceId: "t", jira, config: testConfig() });
+
+test("board past page one is found via Jira's server-side name filter, case-insensitively", async () => {
+  const jira = boardsMock();
+  const out = (await health().handler({ boardName: "xsight - team marvel", maxResults: 100 } as never, ctxFor(jira))) as any;
+  assert.deepEqual(out.sprint, { id: 555, name: "Marvel 46", board: { id: 1106, name: "Copy of Xsight - Team Marvel" } });
+  assert.equal(jira.calls[0].name, "xsight - team marvel");
+});
+
+test("falls back to a bounded full scan when the instance ignores the name filter", async () => {
+  const jira = boardsMock({ serverNameFilter: false });
+  const out = (await health().handler({ boardName: "Copy of Xsight - Team Marvel", maxResults: 100 } as never, ctxFor(jira))) as any;
+  assert.equal(out.sprint.board.id, 1106);
+  assert.ok(jira.calls.length >= 3, "walked past page one");
+});
+
+test("ambiguous names list up to 10 candidates with ids; missing names point to jira_list_boards without dumping the list", async () => {
+  const jira = boardsMock();
+  await assert.rejects(() => health().handler({ boardName: "xsight", maxResults: 100 } as never, ctxFor(jira)), (e: any) => e.code === "INVALID_INPUT" && /matches 2 boards/.test(e.message) && /id 1106/.test(e.message));
+  await assert.rejects(() => health().handler({ boardName: "nope", maxResults: 100 } as never, ctxFor(jira)), (e: any) => e.code === "NOT_FOUND" && /jira_list_boards/.test(e.message) && !/Board 01/.test(e.message));
+});
+
+test("sprintName is found among closed sprints by walking pages; active sprint is the default", async () => {
+  const jira = boardsMock();
+  const named = (await health().handler({ boardId: 1106, sprintName: "Marvel 3", maxResults: 100 } as never, ctxFor(jira))) as any;
+  assert.deepEqual([named.sprint.id, named.sprint.name], [102, "Marvel 3"]);
+  const active = (await health().handler({ boardId: 1106, maxResults: 100 } as never, ctxFor(jira))) as any;
+  assert.equal(active.sprint.id, 555);
+  assert.deepEqual(active.unassigned, ["XS-1"]);
+});
+
+test("jira_list_boards reports Jira's total and paging, not the page length", async () => {
+  const jira = boardsMock();
+  const tool = createReadTools(100).find((t) => t.name === "jira_list_boards")!;
+  const out = (await tool.handler({ nameContains: "board", startAt: 0, maxResults: 20 } as never, ctxFor(jira))) as any;
+  assert.equal(out.total, 53);
+  assert.equal(out.returned, 20);
+  assert.equal(out.isLast, false);
+  assert.equal(out.nextStartAt, 20);
 });

@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. Format follows Keep a Changelog; versions follow SemVer. Pre-1.0, minor versions may break.
 
+## [0.2.2] - 2026-09-10
+
+### Fixed
+- Board resolution walked only the first page and filtered client-side, so boards past page one were reported as missing and the NOT_FOUND error dumped the first 50 boards. It now passes `name=` to Jira for a server-side partial match, pages on `isLast` (bounded at 10 pages), and falls back to a bounded full scan for instances that ignore the filter. NOT_FOUND now says to try `jira_list_boards` with `nameContains` or `projectKey`; ambiguity lists at most 10 candidates with ids.
+- Sprint resolution by name walks active and future first, then closed sprints page by page, instead of the first 100.
+- `jira_list_boards` and `jira_list_sprints` report Jira's `total` (null when the instance omits it), plus `startAt`, `returned`, `isLast`, `nextStartAt`. `total` was the page length.
+
+### Added
+- `startAt` on `jira_list_boards` and `jira_list_sprints`; `nameContains` on boards is applied server-side.
+
 ## [0.2.1] - 2026-09-10
 
 ### Fixed

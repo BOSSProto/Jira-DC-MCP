@@ -3,7 +3,7 @@ import { READ_ANNOTATIONS, tool, type ToolDef, type ToolContext } from "./types.
 import { IssueKey, ProjectKey, FixVersionName, ExtraFields, Id, pageSize, StartAt, jqlQuote } from "./params.js";
 import { ToolError } from "../core/errors.js";
 import { settleLimit } from "../core/parallel.js";
-import type { JiraIssue } from "../services/jira-client.js";
+import type { JiraIssue, AgilePage, Board, Sprint } from "../services/jira-client.js";
 
 const DEFAULT_ISSUE_FIELDS = ["summary", "status", "issuetype", "assignee", "priority", "fixVersions", "updated"];
 
@@ -89,33 +89,72 @@ export function buildJql(filter: z.infer<typeof SearchFilter>, orderBy: string):
 
 // ---------- Board / sprint resolution ----------
 
-async function resolveBoard(ctx: ToolContext, boardId?: number, boardName?: string) {
-  if (boardId) return { id: boardId, name: null as string | null };
+/** Hard cap on pages walked while resolving a name; Jira's own `name` filter makes more than a page rare. */
+const MAX_RESOLVE_PAGES = 10;
+
+async function walkPages<T>(ctx: ToolContext, fetchPage: (startAt: number) => Promise<AgilePage<T>>, stopWhen?: (acc: T[]) => boolean): Promise<T[]> {
+  const acc: T[] = [];
+  let startAt = 0;
+  for (let page = 0; page < MAX_RESOLVE_PAGES; page++) {
+    const r = await fetchPage(startAt);
+    acc.push(...r.values);
+    if (r.isLast || r.values.length === 0 || (stopWhen && stopWhen(acc))) break;
+    startAt += r.values.length;
+  }
+  return acc;
+}
+
+function pickByName<T extends { id: number; name: string }>(candidates: T[], query: string): T[] {
+  const q = query.toLowerCase();
+  const exact = candidates.filter((c) => c.name.toLowerCase() === q);
+  return exact.length ? exact : candidates.filter((c) => c.name.toLowerCase().includes(q));
+}
+
+function ambiguous(kind: string, query: string, matches: Array<{ id: number; name: string }>, idParam: string): never {
+  const shown = matches.slice(0, 10).map((m) => `${m.name} (id ${m.id})`).join(", ");
+  throw new ToolError("INVALID_INPUT", `'${query}' matches ${matches.length} ${kind}s: ${shown}${matches.length > 10 ? ", ..." : ""}. Pass ${idParam} or a more specific name.`);
+}
+
+async function resolveBoard(ctx: ToolContext, boardId?: number, boardName?: string): Promise<{ id: number; name: string | null }> {
+  if (boardId) return { id: boardId, name: null };
   if (!boardName) throw new ToolError("INVALID_INPUT", "Provide boardId or boardName. Use jira_list_boards to see boards.");
-  const all = (await ctx.jira.listBoards(ctx.traceId, undefined, ctx.config.JIRA_MAX_RESULTS_CAP)).values;
-  const q = boardName.toLowerCase();
-  const exact = all.filter((b) => b.name.toLowerCase() === q);
-  const matches = exact.length ? exact : all.filter((b) => b.name.toLowerCase().includes(q));
-  if (matches.length === 1) return { id: matches[0].id, name: matches[0].name };
-  if (matches.length === 0) throw new ToolError("NOT_FOUND", `No board matches '${boardName}'. Boards: ${all.map((b) => b.name).join(", ")}`);
-  throw new ToolError("INVALID_INPUT", `boardName '${boardName}' matches ${matches.length} boards: ${matches.map((b) => `${b.name} (id ${b.id})`).join(", ")}. Pass boardId.`);
+  const cap = ctx.config.JIRA_MAX_RESULTS_CAP;
+  // Server-side match first (Jira filters by partial name), walking pages on isLast.
+  let found = pickByName(await walkPages<Board>(ctx, (startAt) => ctx.jira.listBoards(ctx.traceId, { name: boardName, startAt, maxResults: cap })), boardName);
+  // Fallback: some instances ignore or case-fold `name` differently; scan without the filter, bounded, and stop as soon as something matches.
+  if (found.length === 0) {
+    const all = await walkPages<Board>(ctx, (startAt) => ctx.jira.listBoards(ctx.traceId, { startAt, maxResults: cap }), (acc) => pickByName(acc, boardName).length > 0);
+    found = pickByName(all, boardName);
+  }
+  if (found.length === 1) return { id: found[0].id, name: found[0].name };
+  if (found.length === 0) throw new ToolError("NOT_FOUND", `No board matches '${boardName}'. Try jira_list_boards with nameContains or projectKey, then pass boardId.`);
+  return ambiguous("board", boardName, found, "boardId");
 }
 
 async function resolveSprint(ctx: ToolContext, a: { sprintId?: number; sprintName?: string; boardId?: number; boardName?: string }) {
   if (a.sprintId) return { id: a.sprintId, name: null as string | null, board: null as { id: number; name: string | null } | null };
   const board = await resolveBoard(ctx, a.boardId, a.boardName);
+  const cap = ctx.config.JIRA_MAX_RESULTS_CAP;
   if (a.sprintName) {
-    const q = a.sprintName.toLowerCase();
-    const sprints = (await ctx.jira.listSprints(ctx.traceId, board.id, undefined, ctx.config.JIRA_MAX_RESULTS_CAP)).values;
-    const exact = sprints.filter((s) => s.name.toLowerCase() === q);
-    const matches = exact.length ? exact : sprints.filter((s) => s.name.toLowerCase().includes(q));
-    if (matches.length === 1) return { id: matches[0].id, name: matches[0].name, board };
-    if (matches.length === 0) throw new ToolError("NOT_FOUND", `No sprint on board ${board.name ?? board.id} matches '${a.sprintName}'.`);
-    throw new ToolError("INVALID_INPUT", `sprintName '${a.sprintName}' matches ${matches.length} sprints: ${matches.map((s) => `${s.name} (id ${s.id})`).join(", ")}. Pass sprintId.`);
+    // No server-side name filter on sprints: check active and future first (small), then walk closed sprints until a match.
+    const recent = await walkPages<Sprint>(ctx, (startAt) => ctx.jira.listSprints(ctx.traceId, board.id, { state: "active", startAt, maxResults: cap }));
+    const future = await walkPages<Sprint>(ctx, (startAt) => ctx.jira.listSprints(ctx.traceId, board.id, { state: "future", startAt, maxResults: cap }));
+    let found = pickByName([...recent, ...future], a.sprintName);
+    if (found.length === 0) {
+      const closed = await walkPages<Sprint>(ctx, (startAt) => ctx.jira.listSprints(ctx.traceId, board.id, { state: "closed", startAt, maxResults: cap }), (acc) => pickByName(acc, a.sprintName!).length > 0);
+      found = pickByName(closed, a.sprintName);
+    }
+    if (found.length === 1) return { id: found[0].id, name: found[0].name, board };
+    if (found.length === 0) throw new ToolError("NOT_FOUND", `No sprint on board ${board.name ?? board.id} matches '${a.sprintName}'. Try jira_list_sprints with state, then pass sprintId.`);
+    return ambiguous("sprint", a.sprintName, found, "sprintId");
   }
-  const active = (await ctx.jira.listSprints(ctx.traceId, board.id, "active", 5)).values;
-  if (active.length === 0) throw new ToolError("NOT_FOUND", `Board ${board.name ?? board.id} has no active sprint. Pass sprintName or sprintId.`);
-  return { id: active[0].id, name: active[0].name, board };
+  const active = await ctx.jira.listSprints(ctx.traceId, board.id, { state: "active", maxResults: 5 });
+  if (active.values.length === 0) throw new ToolError("NOT_FOUND", `Board ${board.name ?? board.id} has no active sprint. Pass sprintName or sprintId.`);
+  return { id: active.values[0].id, name: active.values[0].name, board };
+}
+
+function envelope<T>(r: AgilePage<T>, key: string, items: unknown[]) {
+  return { total: r.total ?? null, startAt: r.startAt, returned: items.length, isLast: r.isLast, nextStartAt: r.isLast ? null : r.startAt + r.values.length, [key]: items };
 }
 
 // ---------- Tools ----------
@@ -296,33 +335,40 @@ export function createReadTools(cap: number): ToolDef[] {
     tool({
       name: "jira_list_boards",
       tier: "read",
-      description: "List Agile boards, optionally for one project or by name substring. Only needed when jira_get_sprint_health's boardName lookup is ambiguous.",
-      inputSchema: z.object({ projectKey: ProjectKey.optional(), nameContains: z.string().optional().describe("Case-insensitive substring filter on board name"), maxResults: pageSize(cap, 20) }).strict(),
+      description: "List Agile boards, filtered server-side by project or name substring, paged. Use when jira_get_sprint_health's boardName lookup reports an ambiguous or missing board, then pass the boardId it returns.",
+      inputSchema: z
+        .object({
+          projectKey: ProjectKey.optional(),
+          nameContains: z.string().optional().describe("Substring matched by Jira against the board name"),
+          startAt: StartAt,
+          maxResults: pageSize(cap, 20),
+        })
+        .strict(),
       annotations: READ_ANNOTATIONS,
       handler: async (a, ctx) => {
-        const q = a.nameContains?.toLowerCase();
-        const boards = (await ctx.jira.listBoards(ctx.traceId, a.projectKey, a.maxResults)).values.filter((b) => !q || b.name.toLowerCase().includes(q)).map((b) => ({ id: b.id, name: b.name, type: b.type }));
-        return { total: boards.length, boards };
+        const r = await ctx.jira.listBoards(ctx.traceId, { projectKey: a.projectKey, name: a.nameContains, startAt: a.startAt, maxResults: a.maxResults });
+        return envelope(r, "boards", r.values.map((b) => ({ id: b.id, name: b.name, type: b.type })));
       },
     }),
 
     tool({
       name: "jira_list_sprints",
       tier: "read",
-      description: "List sprints for a board (by id or name) filtered by state. Use to find a sprint id or to see upcoming sprints; for the current sprint's status go straight to jira_get_sprint_health.",
+      description: "List sprints for a board (by id or name) filtered by state, paged. Use to find a sprint id or see upcoming sprints; for the current sprint's status go straight to jira_get_sprint_health.",
       inputSchema: z
         .object({
           boardId: Id.optional().describe("Board id from jira_list_boards"),
           boardName: z.string().optional().describe("Board name or unique substring; resolved server-side"),
           state: z.enum(["active", "future", "closed"]).optional().describe("Sprint state filter; omit for all"),
+          startAt: StartAt,
           maxResults: pageSize(cap, 20),
         })
         .strict(),
       annotations: READ_ANNOTATIONS,
       handler: async (a, ctx) => {
         const board = await resolveBoard(ctx, a.boardId, a.boardName);
-        const sprints = (await ctx.jira.listSprints(ctx.traceId, board.id, a.state, a.maxResults)).values.map((s) => ({ id: s.id, name: s.name, state: s.state, startDate: s.startDate ?? null, endDate: s.endDate ?? null, goal: s.goal ?? null }));
-        return { board, total: sprints.length, sprints };
+        const r = await ctx.jira.listSprints(ctx.traceId, board.id, { state: a.state, startAt: a.startAt, maxResults: a.maxResults });
+        return { board, ...envelope(r, "sprints", r.values.map((s) => ({ id: s.id, name: s.name, state: s.state, startDate: s.startDate ?? null, endDate: s.endDate ?? null, goal: s.goal ?? null }))) };
       },
     }),
 

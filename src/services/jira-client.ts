@@ -14,6 +14,18 @@ export interface SearchResult {
   issues: JiraIssue[];
 }
 
+/** Jira Agile list envelope. `total` is present on most DC versions but not guaranteed; `isLast` always is. */
+export interface AgilePage<T> {
+  values: T[];
+  startAt: number;
+  maxResults: number;
+  total?: number;
+  isLast: boolean;
+}
+
+export interface Board { id: number; name: string; type: string }
+export interface Sprint { id: number; name: string; state: string; startDate?: string; endDate?: string; goal?: string }
+
 export interface FieldDef {
   id: string;
   name: string;
@@ -87,19 +99,22 @@ export class JiraClient {
     return fields.find((f) => f.name.toLowerCase() === lower);
   }
 
-  listBoards(traceId: string, projectKey?: string, maxResults?: number) {
-    return this.get<{ values: Array<{ id: number; name: string; type: string }> }>(traceId, "/rest/agile/1.0/board", {
-      projectKeyOrId: projectKey,
-      maxResults: this.capResults(maxResults),
+  /** `name` is matched server-side by Jira (partial match), so a board past page one is still found. */
+  listBoards(traceId: string, opts: { projectKey?: string; name?: string; startAt?: number; maxResults?: number } = {}): Promise<AgilePage<Board>> {
+    return this.get<AgilePage<Board>>(traceId, "/rest/agile/1.0/board", {
+      projectKeyOrId: opts.projectKey,
+      name: opts.name,
+      startAt: opts.startAt ?? 0,
+      maxResults: this.capResults(opts.maxResults),
     });
   }
 
-  listSprints(traceId: string, boardId: number, state?: "active" | "future" | "closed", maxResults?: number) {
-    return this.get<{ values: Array<{ id: number; name: string; state: string; startDate?: string; endDate?: string; goal?: string }> }>(
-      traceId,
-      `/rest/agile/1.0/board/${boardId}/sprint`,
-      { state, maxResults: this.capResults(maxResults) },
-    );
+  listSprints(traceId: string, boardId: number, opts: { state?: "active" | "future" | "closed"; startAt?: number; maxResults?: number } = {}): Promise<AgilePage<Sprint>> {
+    return this.get<AgilePage<Sprint>>(traceId, `/rest/agile/1.0/board/${boardId}/sprint`, {
+      state: opts.state,
+      startAt: opts.startAt ?? 0,
+      maxResults: this.capResults(opts.maxResults),
+    });
   }
 
   sprintIssues(traceId: string, sprintId: number, fields: string[], maxResults?: number) {

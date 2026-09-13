@@ -1,6 +1,6 @@
 {
   "name": "jira-dc-mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A permissioned, audited MCP server for Jira Data Center. Read by default; writes are explicit and confirmable.",
   "type": "module",
   "bin": { "jira-dc-mcp": "dist/index.js" },

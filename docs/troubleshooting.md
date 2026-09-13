@@ -10,6 +10,7 @@
 | `TIMEOUT` | Jira slower than `JIRA_TIMEOUT_MS` | Raise the value (max 120000) or narrow the JQL |
 | Release health says `complete: false` | One of the count queries failed; `partial` names which (e.g. `openByType.Bug`) | Retry; if it persists, run that JQL by hand and check the type name exists on your instance |
 | Release health `openByType.other` is large | Your instance uses type names outside the default set | Pass `openIssueTypes` with your names (see `jira_list_fields` won't help here; check the project's issue types) |
-| `boardName` matches N boards | Substring hit more than one board | Use the exact name or pass `boardId` from the error message |
+| `boardName` matches N boards | Substring hit more than one board | Use the exact name or pass `boardId` from the error message (first 10 candidates are listed) |
+| `boardName` NOT_FOUND but the board exists | The instance doesn't apply the Agile `name` filter and the board is beyond 10 pages | `jira_list_boards projectKey:<KEY>` then pass `boardId` |
 | Epic creation fails with a field error | Instance has no field named "Epic Name" or names it differently | `jira_list_fields nameContains:"epic"` and pass the ID in `extraFields` |
 | "Python not found" on start | Another MCP's config uses `command: python` | This server's config must use `"command": "node"` |
